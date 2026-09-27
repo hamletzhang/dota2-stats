@@ -45,10 +45,12 @@ function ttlFor(p) {
 }
 
 // ---------- 上游请求 ----------
+const odAgent = new https.Agent({ keepAlive: true });
 function odFetch(odPath, method) {
   return new Promise((resolve, reject) => {
     const req = https.request(OPENDOTA_BASE + '/' + odPath, {
       method: method || 'GET',
+      agent: odAgent,
       headers: { 'User-Agent': 'personal-dota2-stats/2.0' },
       timeout: 15000,
     }, (resp) => {
