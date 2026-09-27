@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dota2 战绩查询</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">🎮 Dota2 战绩</div>
+    <div class="search-box">
+      <input id="searchInput" type="text" inputmode="numeric" placeholder="输入 Account ID (Steam32) 查询…">
+      <button id="searchBtn">查询</button>
+      <button id="refreshBtn" class="ghost hidden" title="请求 OpenDota 重新解析该玩家比赛">刷新数据</button>
+    </div>
+    <div id="savedPlayers" class="saved-players"></div>
+  </header>
+
+  <main>
+    <div id="status" class="status"></div>
+
+    <!-- 玩家资料卡片 -->
+    <section id="profileCard" class="card profile hidden">
+      <img id="pAvatar" class="avatar" alt="avatar">
+      <div class="profile-info">
+        <div class="profile-name-row">
+          <span id="pName" class="p-name"></span>
+          <a id="pSteamLink" target="_blank" class="mini-link">Steam</a>
+          <a id="pOdLink" target="_blank" class="mini-link">OpenDota</a>
+          <a id="pStratzLink" target="_blank" class="mini-link">STRATZ</a>
+          <button id="saveBtn" class="mini-btn">☆ 保存</button>
+        </div>
+        <div class="profile-stats">
+          <div class="stat"><span class="label">段位</span><span id="pRank" class="value"></span></div>
+          <div class="stat"><span class="label">预估MMR</span><span id="pMmr" class="value"></span></div>
+          <div class="stat"><span class="label">总战绩</span><span id="pWl" class="value"></span></div>
+          <div class="stat"><span class="label">总胜率</span><span id="pWinrate" class="value"></span></div>
+          <div class="stat"><span class="label">最近比赛</span><span id="pLastMatch" class="value"></span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 时间筛选 + 标签页 -->
+    <section id="contentArea" class="hidden">
+      <div class="toolbar">
+        <div class="tabs">
+          <button class="tab active" data-tab="matches">最近比赛</button>
+          <button class="tab" data-tab="heroes">英雄统计</button>
+          <button class="tab" data-tab="peers">队友</button>
+          <button class="tab" data-tab="compare">对比</button>
+        </div>
+        <div class="time-filter" id="timeFilter">
+          <button data-days="7">7天</button>
+          <button data-days="30" class="active">30天</button>
+          <button data-days="90">90天</button>
+          <button data-days="0">近100场</button>
+        </div>
+      </div>
+
+      <div id="tab-matches" class="tab-panel"></div>
+
+      <div id="tab-heroes" class="tab-panel hidden">
+        <div id="heroSummary" class="hero-summary"></div>
+        <div class="hero-columns">
+          <div>
+            <h3 class="up-title">📈 上分英雄</h3>
+            <div id="upHeroes" class="hero-list"></div>
+          </div>
+          <div>
+            <h3 class="down-title">📉 下分英雄</h3>
+            <div id="downHeroes" class="hero-list"></div>
+          </div>
+        </div>
+        <h3>全部英雄（按场次排序）</h3>
+        <div id="allHeroes"></div>
+      </div>
+
+      <div id="tab-peers" class="tab-panel hidden"></div>
+
+      <div id="tab-compare" class="tab-panel hidden">
+        <div class="compare-picker">
+          <span>与 </span>
+          <select id="compareSelect"><option value="">选择已保存的玩家…</option></select>
+          <span> 对比</span>
+        </div>
+        <div id="compareResult"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">数据来源：<a href="https://www.opendota.com" target="_blank">OpenDota</a> · 仅供个人使用</footer>
+  <script src="app.js"></script>
+</body>
+</html>
