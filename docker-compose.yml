@@ -6,3 +6,8 @@ services:
     restart: unless-stopped
     ports:
       - "7778:7778"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:7778/"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
