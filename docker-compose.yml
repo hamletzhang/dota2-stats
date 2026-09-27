@@ -1,0 +1,8 @@
+services:
+  dota2-stats:
+    build: .
+    image: dota2-stats:latest
+    container_name: dota2-stats
+    restart: unless-stopped
+    ports:
+      - "7778:7778"
