@@ -47,6 +47,76 @@ function loadHeroes() {
   });
 }
 
+// 物品表：OpenDota constants/item_ids（小且快，服务端缓存 7 天），id→图标 key
+var ITEM = {};
+var itemsLoading = null;
+function loadItems() {
+  if (itemsLoading) return itemsLoading;
+  itemsLoading = fetch("/api/od/constants/item_ids").then(function (r) { return r.json(); }).then(function (map) {
+    Object.keys(map).forEach(function (id) { ITEM[id] = map[id]; });
+  }).catch(function () { itemsLoading = null; });
+  return itemsLoading;
+}
+
+// ---------- 比赛详情 ----------
+function openMatch(mid) {
+  if (!state.id) return;
+  state.matchId = mid;
+  history.replaceState(null, "", "#/" + state.id + "/match/" + mid);
+  renderMatchDetail(mid);
+}
+
+function renderMatchDetail(mid) {
+  $("#panel").innerHTML = '<div class="skel"></div><div class="skel"></div><div class="skel"></div>';
+  Promise.all([
+    fetch("/api/od/matches/" + mid).then(function (r) { return r.json().then(function (d) { if (!r.ok || d.error) throw new Error(d.error || "加载失败（HTTP " + r.status + "）"); return d; }); }),
+    loadItems(),
+  ]).then(function (arr) {
+    if (String(state.matchId) !== String(mid)) return; // 已切换
+    drawMatch(arr[0], mid);
+  }, function (err) {
+    $("#panel").innerHTML = '<div class="error">' + esc(err.message) + '</div><button class="btn" id="mback">返回比赛列表</button>';
+  });
+}
+
+function drawMatch(m, mid) {
+  var players = m.players || [];
+  var rad = players.filter(function (p) { return p.player_slot < 128; });
+  var dire = players.filter(function (p) { return p.player_slot >= 128; });
+  var me = String(mid) && state.id;
+  function itemsRow(p) {
+    var ids = [p.item_0, p.item_1, p.item_2, p.item_3, p.item_4, p.item_5];
+    return '<div class="items">' + ids.map(function (id) {
+      var key = ITEM[id];
+      return key ? '<img src="/img/item/' + key + '.png" width="28" height="20" loading="lazy" decoding="async" alt="" title="' + esc(key) + '">'
+                 : '<span class="item-empty"></span>';
+    }).join("") + '</div>';
+  }
+  function teamTable(list, label, score, isMe) {
+    var rows = list.map(function (p) {
+      var mine = me && String(p.account_id) === String(state.id);
+      return '<div class="row d-row' + (mine ? " me" : "") + '">' +
+        heroCell(p.hero_id, p.personaname || "匿名") +
+        '<div class="d-kda"><b>' + p.kills + '</b> / <b class="lose">' + p.deaths + '</b> / <b>' + p.assists + '</b></div>' +
+        '<div class="d-num">' + p.level + '</div>' +
+        '<div class="d-num">' + (p.gold_per_min || 0) + '</div>' +
+        '<div class="d-num">' + (p.xp_per_min || 0) + '</div>' +
+        '<div class="d-num">' + (p.hero_damage || 0).toLocaleString() + '</div>' +
+        '<div class="d-num">' + (p.tower_damage || 0).toLocaleString() + '</div>' +
+        itemsRow(p) + '</div>';
+    }).join("");
+    return '<div class="team ' + (isMe ? "radiant" : "dire") + '"><div class="team-head">' + label + ' · ' + score + ' 杀</div>' +
+      '<div class="list"><div class="row head d-row"><div>英雄 / 玩家</div><div>K/D/A</div><div>等级</div><div>GPM</div><div>XPM</div><div>英雄伤害</div><div>建筑伤害</div><div>物品</div></div>' +
+      rows + '</div></div>';
+  }
+  $("#panel").innerHTML =
+    '<div class="toolbar"><button class="btn" id="mback">← 返回比赛列表</button><span class="spacer"></span>' +
+    '<span class="note">比赛 #' + mid + " · " + ago(m.start_time) + " · " + dur(m.duration) + " · " + (MODES[m.game_mode] || "其他模式") + '</span></div>' +
+    '<div class="mscore ' + (m.radiant_win ? "win" : "lose") + '">' + (m.radiant_win ? "天辉获胜" : "夜魇获胜") + '</div>' +
+    teamTable(rad, "天辉", m.radiant_score, true) +
+    teamTable(dire, "夜魇", m.dire_score, false);
+}
+
 function fetchPlayer(id) {
   return fetch("/api/player/" + id + "/summary").then(function (r) {
     return r.json().then(function (d) {
@@ -60,7 +130,7 @@ function fetchPlayer(id) {
 function load(id) {
   id = String(id).trim();
   if (!/^\d{1,12}$/.test(id)) { toast("请输入纯数字的 Account ID"); return; }
-  state.id = id; state.data = null; state.shown = PAGE;
+  state.id = id; state.data = null; state.shown = PAGE; state.matchId = null;
   $("#q").value = id;
   $("#player").innerHTML = '<div class="skel" style="height:96px"></div>';
   $("#panel").innerHTML = '<div class="skel"></div><div class="skel"></div><div class="skel"></div>';
@@ -107,7 +177,7 @@ function renderMatches() {
   var list = all.filter(function (m) { return state.filter === "all" || (state.filter === "w") === isWin(m); });
   var rows = list.slice(0, state.shown).map(function (m) {
     var w = isWin(m), mode = MODES[m.game_mode] || "其他模式";
-    return '<div class="row m-row ' + (w ? "w" : "l") + '"><div class="bar"></div>' +
+    return '<div class="row m-row ' + (w ? "w" : "l") + '" data-mid="' + m.match_id + '" role="button" tabindex="0" title="点击查看比赛详情"><div class="bar"></div>' +
       heroCell(m.hero_id, '<span class="mob">' + ago(m.start_time) + ' · ' + dur(m.duration) + ' · </span>' + mode) +
       '<div class="res ' + (w ? "win" : "lose") + '">' + (w ? "胜利" : "失败") + '</div>' +
       '<div class="kda"><b>' + m.kills + '</b> / <b class="lose">' + m.deaths + '</b> / <b>' + m.assists + '</b></div>' +
@@ -115,12 +185,34 @@ function renderMatches() {
       '<div class="when muted">' + ago(m.start_time) + '</div></div>';
   }).join("");
   $("#panel").innerHTML =
+    renderTrend(all) +
     '<div class="toolbar">' + chip("all", "全部") + chip("w", "胜利") + chip("l", "失败") +
-    '<span class="spacer"></span><span class="note">最近 ' + all.length + ' 场</span></div>' +
+    '<span class="spacer"></span><span class="note">最近 ' + all.length + ' 场 · 点击行看详情</span></div>' +
     '<div class="list"><div class="row head m-row"><div></div><div>英雄 / 模式</div><div>结果</div><div>击杀 / 死亡 / 助攻</div><div>时长</div><div>时间</div></div>' +
     (rows || '<div class="empty">没有符合条件的比赛</div>') + '</div>' +
     (list.length > state.shown ? '<button class="btn more" id="more">加载更多（还有 ' + (list.length - state.shown) + ' 场）</button>' : "");
   function chip(v, t) { return '<button class="chip" data-filter="' + v + '" aria-pressed="' + (state.filter === v) + '">' + t + '</button>'; }
+}
+
+// KDA 趋势图：最近 50 场，内联 SVG，左旧右新
+function renderTrend(matches) {
+  if (!matches || !matches.length) return "";
+  var N = 50, ms = matches.slice(0, N).reverse();
+  var kdas = ms.map(function (m) { return (m.kills + m.assists) / Math.max(1, m.deaths); });
+  var max = Math.max.apply(null, kdas.concat([3]));
+  var W = 600, H = 110, PAD = 6;
+  function X(i) { return PAD + i * (W - 2 * PAD) / Math.max(1, ms.length - 1); }
+  function Y(v) { return H - PAD - (v / max) * (H - 2 * PAD); }
+  var pts = kdas.map(function (v, i) { return X(i).toFixed(1) + "," + Y(v).toFixed(1); }).join(" ");
+  var dots = ms.map(function (m, i) {
+    return '<circle cx="' + X(i).toFixed(1) + '" cy="' + Y(kdas[i]).toFixed(1) + '" r="3" class="' + (isWin(m) ? "tw" : "tl") + '"><title>' +
+      ago(m.start_time) + " · " + m.kills + "/" + m.deaths + "/" + m.assists + " · KDA " + kdas[i].toFixed(1) + "</title></circle>";
+  }).join("");
+  var avg = kdas.reduce(function (a, b) { return a + b; }, 0) / kdas.length;
+  return '<div class="trend"><div class="trend-head"><span class="note">近 ' + ms.length + ' 场 KDA 趋势（均值 ' + avg.toFixed(2) + '）</span></div>' +
+    '<svg viewBox="0 0 ' + W + ' ' + H + '" class="trend-svg" role="img" aria-label="KDA 趋势图">' +
+    '<line x1="' + PAD + '" y1="' + Y(avg).toFixed(1) + '" x2="' + (W - PAD) + '" y2="' + Y(avg).toFixed(1) + '" class="tavg" />' +
+    '<polyline points="' + pts + '" class="tline" />' + dots + "</svg></div>";
 }
 
 function heroStats(matches) {
@@ -216,9 +308,17 @@ function runCompare() {
 
 // 事件委托：面板重绘时无需重复绑定
 $("#panel").addEventListener("click", function (e) {
+  if (e.target.closest("#mback")) { state.matchId = null; syncHash(); renderPanel(); return; }
+  var mr = e.target.closest(".m-row[data-mid]");
+  if (mr && state.tab === "matches") { openMatch(mr.dataset.mid); return; }
   var t = e.target.closest("button"); if (!t) return;
   if (t.dataset.filter) { state.filter = t.dataset.filter; state.shown = PAGE; renderMatches(); }
   else if (t.id === "more") { state.shown += PAGE; renderMatches(); }
+});
+$("#panel").addEventListener("keydown", function (e) {
+  if (e.key !== "Enter") return;
+  var mr = e.target.closest(".m-row[data-mid]");
+  if (mr && state.tab === "matches") openMatch(mr.dataset.mid);
 });
 $("#panel").addEventListener("input", function (e) {
   if (e.target.id === "hq") {
@@ -243,13 +343,28 @@ $("#refresh").addEventListener("click", function () {
   toast("已请求 OpenDota 重新解析，约 1–2 分钟后再刷新可见新比赛");
 });
 
-// 地址栏同步：#/139369436/heroes，可收藏、可分享、刷新不丢状态
-function syncHash() { if (state.id) history.replaceState(null, "", "#/" + state.id + "/" + state.tab); }
+// 地址栏同步：#/139369436/heroes 或 #/139369436/match/9012685433，可收藏、可分享、刷新不丢状态
+function syncHash() {
+  if (!state.id) return;
+  history.replaceState(null, "", "#/" + state.id + "/" + (state.matchId ? "match/" + state.matchId : state.tab));
+}
 (function init() {
   loadHeroes().catch(function () { toast("英雄表加载失败，英雄名将显示英文"); });
-  var m = location.hash.match(/^#\/(\d+)(?:\/(\w+))?/);
+  var m = location.hash.match(/^#\/(\d+)(?:\/(\w+))?(?:\/(\d+))?/);
   var tab = m && m[2] && /^(matches|heroes|peers|compare)$/.test(m[2]) ? m[2] : "matches";
+  var mid = m && m[2] === "match" ? m[3] : null;
   setTab(tab);
-  if (m) load(m[1]);
+  if (m) {
+    state.matchId = mid;
+    load(m[1]);
+    if (mid) {
+      // summary 就绪后打开详情（简单等待数据到达）
+      var tryOpen = function () {
+        if (state.data) renderMatchDetail(mid);
+        else setTimeout(tryOpen, 300);
+      };
+      tryOpen();
+    }
+  }
   else $("#panel").innerHTML = '<div class="empty">输入 Account ID 开始查询（例如 Steam32 数字 ID）</div>';
 })();
