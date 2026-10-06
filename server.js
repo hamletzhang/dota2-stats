@@ -47,6 +47,7 @@ function ttlFor(p) {
 // ---------- 上游请求 ----------
 const odAgent = new https.Agent({ keepAlive: true });
 function odFetch(odPath, method) {
+  const started = Date.now();
   return new Promise((resolve, reject) => {
     const req = https.request(OPENDOTA_BASE + '/' + odPath, {
       method: method || 'GET',
@@ -56,7 +57,12 @@ function odFetch(odPath, method) {
     }, (resp) => {
       const chunks = [];
       resp.on('data', (c) => chunks.push(c));
-      resp.on('end', () => resolve({ status: resp.statusCode, body: Buffer.concat(chunks) }));
+      resp.on('end', () => resolve({
+        status: resp.statusCode,
+        body: Buffer.concat(chunks),
+        ms: Date.now() - started,
+        reused: !!req.reusedSocket,
+      }));
     });
     req.on('timeout', () => { req.destroy(new Error('OpenDota 请求超时')); });
     req.on('error', reject);
@@ -71,7 +77,7 @@ async function odCached(odPath) {
   try {
     const r = await odFetch(odPath);
     if (r.status >= 200 && r.status < 300) cacheSet(key, r.body, r.status, ttlFor(odPath));
-    return { status: r.status, body: r.body, cache: 'MISS' };
+    return { status: r.status, body: r.body, cache: 'MISS', ms: r.ms, reused: r.reused };
   } catch (e) {
     const stale = cacheGetStale(key);
     if (stale) return { status: stale.status, body: stale.data, cache: 'STALE' };
@@ -112,6 +118,10 @@ async function handleSummary(req, res, id) {
       return;
     }
     const stale = [profile, wl, matches, peers].some((r) => r.cache === 'STALE');
+    console.log('[summary]', id, ['profile', 'wl', 'matches', 'peers'].map((n, i) => {
+      const r = [profile, wl, matches, peers][i];
+      return `${n}:${r.cache}${r.ms !== undefined ? ' ' + r.ms + 'ms' : ''}${r.reused ? ' reused' : ''}`;
+    }).join(' '));
     sendJson(req, res, 200, JSON.stringify({
       profile: JSON.parse(profile.body.toString()),
       wl: JSON.parse(wl.body.toString()),
@@ -145,17 +155,22 @@ async function proxyOpenDota(req, res, odPath, method) {
   }
 }
 
-// ---------- 英雄图标代理：GET /img/hero/{key}.png（磁盘缓存 + immutable） ----------
-function handleHeroImage(res, key) {
+// ---------- 图标代理：GET /img/{hero|item}/{key}.png（磁盘缓存 + immutable） ----------
+const IMG_BASES = {
+  hero: { base: HERO_IMG_BASE, suffix: '.png' },
+  item: { base: 'https://cdn.cloudflare.steamstatic.com/apps/dota2/images/items/', suffix: '_lg.png' },
+};
+function handleHeroImage(res, key, kind) {
   if (!/^[a-z_]+$/.test(key)) { res.writeHead(400); res.end(); return; }
-  const file = path.join(IMG_CACHE_DIR, key + '.png');
+  const file = path.join(IMG_CACHE_DIR, (kind || 'hero') + '-' + key + '.png');
   fs.readFile(file, (err, data) => {
     if (!err) {
       res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=31536000, immutable' });
       res.end(data);
       return;
     }
-    https.get(HERO_IMG_BASE + key + '.png', { timeout: 15000 }, (up) => {
+    const cfg = IMG_BASES[kind] || IMG_BASES.hero;
+    https.get(cfg.base + key + cfg.suffix, { timeout: 15000 }, (up) => {
       if (up.statusCode !== 200) { res.writeHead(up.statusCode); res.end(); up.resume(); return; }
       const chunks = [];
       up.on('data', (c) => chunks.push(c));
@@ -207,8 +222,8 @@ const server = http.createServer((req, res) => {
   const sum = p.match(/^\/api\/player\/(\d{1,12})\/summary$/);
   if (sum && req.method === 'GET') { handleSummary(req, res, sum[1]); return; }
 
-  const img = p.match(/^\/img\/hero\/([a-z_]+)\.png$/);
-  if (img && req.method === 'GET') { handleHeroImage(res, img[1]); return; }
+  const img = p.match(/^\/img\/(hero|item)\/([a-z_]+)\.png$/);
+  if (img && req.method === 'GET') { handleHeroImage(res, img[2], img[1]); return; }
 
   if (p.startsWith('/api/od/')) {
     const odPath = p.slice('/api/od/'.length) + (u.search || '');
